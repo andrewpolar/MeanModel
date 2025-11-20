@@ -1,3 +1,24 @@
+//Concept: Andrew Polar and Mike Poluektov
+//Developer Andrew Polar
+
+// License
+// If the end user somehow manages to make billions of US dollars using this code,
+// and happens to meet the developer begging for change outside a McDonald's,
+// they are under no obligation to buy the developer a sandwich.
+
+// Symmetry Clause
+// Likewise, if the developer becomes rich and famous by publishing this code,
+// and meets an unfortunate end user who went bankrupt using it,
+// the developer is also under no obligation to buy the end user a sandwich.
+
+//Publications:
+//https://www.sciencedirect.com/science/article/abs/pii/S0016003220301149
+//https://www.sciencedirect.com/science/article/abs/pii/S0952197620303742
+//https://link.springer.com/article/10.1007/s10994-025-06800-6
+
+//Website:
+//http://OpenKAN.org
+
 #include <iostream>
 #include <cmath>
 #include <algorithm>
@@ -155,5 +176,6 @@ void Determinants44() {
 int main() {
 	Determinants44();
 }
+
 
 
