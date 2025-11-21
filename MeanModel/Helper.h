@@ -5,7 +5,6 @@
 #include <random>
 #include <ctime>
 
-
 double Pearson(const std::vector<double>& x, const std::vector<double>& y) {
 	int len = (int)x.size();
 	double xmean = 0.0;
@@ -111,4 +110,6 @@ std::vector<double> ComputeDeterminantTarget(const std::vector<std::vector<doubl
 	return target;
 }
 //End of determinant
+
+
 
