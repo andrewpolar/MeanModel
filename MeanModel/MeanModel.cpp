@@ -121,7 +121,7 @@ void Determinants44() {
 
     //3.batches. all constants are arbitrary
     const int nBatchSize = 30'000;
-    const int nBatches = 6;   
+    const int nBatches = 6;
     const int nLoops = 64;
     /////////////////////
 
@@ -139,32 +139,32 @@ void Determinants44() {
     std::random_device rd;
     std::mt19937 rng(rd());
 
-    // Create a base set of inner functions (one per inner x feature)
-    std::vector<std::unique_ptr<Function>> baseInner;
-    baseInner.reserve(nInner * nFeatures);
+    // Create containers sized to nBatches
+    std::vector<std::vector<std::unique_ptr<Function>>> inners;
+    std::vector<std::vector<std::unique_ptr<Function>>> outers;
+
+    inners.resize(1);   // make sure index 0 exists
+    outers.resize(1);
+
+    // Fill batch 0
+    inners[0].reserve(nInner * nFeatures);
     for (int i = 0; i < nInner * nFeatures; ++i) {
         auto function = std::make_unique<Function>();
         InitializeFunction(*function, nInnerPoints, min, max, targetMin, targetMax, rng);
-        baseInner.push_back(std::move(function));
+        inners[0].push_back(std::move(function));
     }
 
-    // Create a base set of outer functions (one per inner)
-    std::vector<std::unique_ptr<Function>> baseOuter;
-    baseOuter.reserve(nInner);
+    outers[0].reserve(nInner);
     for (int i = 0; i < nInner; ++i) {
         auto function = std::make_unique<Function>();
         InitializeFunction(*function, nOuterPoints, targetMin, targetMax, targetMin, targetMax, rng);
-        baseOuter.push_back(std::move(function));
+        outers[0].push_back(std::move(function));
     }
 
-    // Create nBatches copies of the base models (inners and outers)
-    std::vector<std::vector<std::unique_ptr<Function>>> inners;
-    std::vector<std::vector<std::unique_ptr<Function>>> outers;
-    inners.reserve(nBatches);
-    outers.reserve(nBatches);
-    for (int b = 0; b < nBatches; ++b) {
-        inners.push_back(CopyVector(baseInner));
-        outers.push_back(CopyVector(baseOuter));
+    // Copy to remaining batches
+    for (int b = 1; b < nBatches; ++b) {
+        inners.push_back(CopyVector(inners[0]));
+        outers.push_back(CopyVector(outers[0]));
     }
 
     printf("Targets are determinants of random 4 * 4 matrices, %d training records\n", nTrainingRecords);
@@ -221,6 +221,8 @@ void Determinants44() {
 int main() {
 	Determinants44();
 }
+
+
 
 
 
