@@ -95,7 +95,7 @@ std::vector<std::unique_ptr<Function>> CopyVector(const std::vector<std::unique_
 	return dst;
 }
 
-void AverageVectors(std::vector<std::unique_ptr<Function>>& target, const std::vector<std::unique_ptr<Function>>& source) {
+void AddVectors(std::vector<std::unique_ptr<Function>>& target, const std::vector<std::unique_ptr<Function>>& source) {
 	if (target.size() != source.size()) {
 		throw std::runtime_error("Vector sizes do not match for averaging.");
 	}
@@ -106,10 +106,22 @@ void AverageVectors(std::vector<std::unique_ptr<Function>>& target, const std::v
 			throw std::runtime_error("Function vector sizes do not match.");
 		}
 		for (size_t j = 0; j < t.f.size(); ++j) {
-			t.f[j] = 0.5 * (t.f[j] + s.f[j]);
+			t.f[j] += s.f[j];
 		}
-		t.xmin = 0.5 * (t.xmin + s.xmin);
-		t.xmax = 0.5 * (t.xmax + s.xmax);
-		t.deltax = 0.5 * (t.deltax + s.deltax);
+		t.xmin += s.xmin;
+		t.xmax += s.xmax;
+		t.deltax += s.deltax;
+	}
+}
+
+void ScaleVectors(std::vector<std::unique_ptr<Function>>& target, double scale) {
+	for (size_t i = 0; i < target.size(); ++i) {
+		Function& t = *target[i];
+		for (size_t j = 0; j < t.f.size(); ++j) {
+			t.f[j] *= scale;
+		}
+		t.xmin *= scale;
+		t.xmax *= scale;
+		t.deltax *= scale;
 	}
 }
