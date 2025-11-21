@@ -23,6 +23,7 @@
 #include <cmath>
 #include <algorithm>
 #include <thread>
+#include <chrono>
 #include "Helper.h"
 #include "Function.h"
 
@@ -130,8 +131,8 @@ void Determinants44() {
     auto targets_training = ComputeDeterminantTarget(features_training, nMatrixSize);
     auto targets_validation = ComputeDeterminantTarget(features_validation, nMatrixSize);
 
-    clock_t start_application = clock();
-    clock_t current_time = clock();
+    using Clock = std::chrono::steady_clock;
+    auto start_application = Clock::now();
 
     double targetMin = *std::min_element(targets_training.begin(), targets_training.end());
     double targetMax = *std::max_element(targets_training.begin(), targets_training.end());
@@ -210,8 +211,9 @@ void Determinants44() {
         // validation every few loops
         if (0 == loop % 3 && loop > 0) {
             double pearson = Validation(inners[0], outers[0], features_validation, targets_validation, nInner, nOuter);
-            current_time = clock();
-            printf("Loop = %d,  pearson = %4.3f, time = %2.3f\n", loop, pearson, (double)(current_time - start_application) / CLOCKS_PER_SEC);
+            auto current = Clock::now();
+            double elapsed = std::chrono::duration<double>(current - start_application).count();
+            printf("Loop = %d,  pearson = %4.3f, time = %2.3f\n", loop, pearson, elapsed);
             if (pearson >= termination) break;
         }
     }
