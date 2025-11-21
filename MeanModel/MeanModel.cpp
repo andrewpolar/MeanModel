@@ -59,7 +59,7 @@ double Validation(const std::vector<std::unique_ptr<Function>>& inner,
 
 void Training(std::vector<std::unique_ptr<Function>>& inner,
 	std::vector<std::unique_ptr<Function>>& outer, const std::vector<std::vector<double>>& features,
-	const std::vector<double>& targets, int nInner, int nOuter, int start, int end, double alpha) {
+	const std::vector<double>& targets, int nInner, int nOuter, int start, int end, int nRecords, double alpha) {
 
 	size_t nFeatures = features[0].size();
 	std::vector<double> models0(nInner);
@@ -67,7 +67,9 @@ void Training(std::vector<std::unique_ptr<Function>>& inner,
 	std::vector<double> deltas0(nInner);
 	std::vector<double> deltas1(nOuter);
 
-	for (int record = start; record < end; ++record) {
+	for (int idx = start; idx < end; ++idx) {
+		int record = idx;
+		if (record >= nRecords) record -= nRecords;
 		for (int k = 0; k < nInner; ++k) {
 			models0[k] = 0.0;
 			for (size_t j = 0; j < nFeatures; ++j) {
@@ -100,77 +102,120 @@ void Training(std::vector<std::unique_ptr<Function>>& inner,
 }
 
 void Determinants44() {
-	const int nTrainingRecords = 100'000;
-	const int nValidationRecords = 20'000;
-	const int nMatrixSize = 4;
-	const int nFeatures = nMatrixSize * nMatrixSize;
-	double min = 0.0;
-	double max = 10.0;
+    //configuration
+    //1.dataset
+    const int nTrainingRecords = 100'000;
+    const int nValidationRecords = 20'000;
+    const int nMatrixSize = 4;
+    const int nFeatures = nMatrixSize * nMatrixSize;
+    const double min = 0.0;
+    const double max = 10.0;
 
-	auto features_training = GenerateInput(nTrainingRecords, nFeatures, min, max);
-	auto features_validation = GenerateInput(nValidationRecords, nFeatures, min, max);
-	auto targets_training = ComputeDeterminantTarget(features_training, nMatrixSize);
-	auto targets_validation = ComputeDeterminantTarget(features_validation, nMatrixSize);
+    //2.network
+    const int nInner = 70;
+    const int nOuter = 1;
+    const double alpha = 0.2;
+    const int nInnerPoints = 3;
+    const int nOuterPoints = 20;
+    const double termination = 0.97;
 
-	clock_t start_application = clock();
-	clock_t current_time = clock();
+    //3.batches. all constants are arbitrary
+    const int nBatchSize = 30'000;
+    const int nBatches = 6;   
+    const int nLoops = 64;
+    /////////////////////
 
-	double targetMin = *std::min_element(targets_training.begin(), targets_training.end());
-	double targetMax = *std::max_element(targets_training.begin(), targets_training.end());
+    auto features_training = GenerateInput(nTrainingRecords, nFeatures, min, max);
+    auto features_validation = GenerateInput(nValidationRecords, nFeatures, min, max);
+    auto targets_training = ComputeDeterminantTarget(features_training, nMatrixSize);
+    auto targets_validation = ComputeDeterminantTarget(features_validation, nMatrixSize);
 
-	const int nInner = 70;
-	const int nOuter = 1;
-	const double alpha = 0.1;
-	const int nInnerPoints = 3;
-	const int nOuterPoints = 30;
-	const double termination = 0.97;
+    clock_t start_application = clock();
+    clock_t current_time = clock();
 
-	std::random_device rd;
-	std::mt19937 rng(rd());
-	std::vector<std::unique_ptr<Function>> inner;
-	for (int i = 0; i < nInner * nFeatures; ++i) {
-		auto function = std::make_unique<Function>();
-		InitializeFunction(*function, nInnerPoints, min, max, targetMin, targetMax, rng);
-		inner.push_back(std::move(function));
-	}
-	std::vector<std::unique_ptr<Function>> outer;
-	for (int i = 0; i < nInner; ++i) {
-		auto function = std::make_unique<Function>();
-		InitializeFunction(*function, nOuterPoints, targetMin, targetMax, targetMin, targetMax, rng);
-		outer.push_back(std::move(function));
-	}
+    double targetMin = *std::min_element(targets_training.begin(), targets_training.end());
+    double targetMax = *std::max_element(targets_training.begin(), targets_training.end());
 
-	auto innerCopy = CopyVector(inner);
-	auto outerCopy = CopyVector(outer);
+    std::random_device rd;
+    std::mt19937 rng(rd());
 
-	printf("Targets are determinants of random 4 * 4 matrices, %d training records\n", nTrainingRecords);
-	for (int epoch = 0; epoch < 32; ++epoch) {
+    // Create a base set of inner functions (one per inner x feature)
+    std::vector<std::unique_ptr<Function>> baseInner;
+    baseInner.reserve(nInner * nFeatures);
+    for (int i = 0; i < nInner * nFeatures; ++i) {
+        auto function = std::make_unique<Function>();
+        InitializeFunction(*function, nInnerPoints, min, max, targetMin, targetMax, rng);
+        baseInner.push_back(std::move(function));
+    }
 
-		//training
-		std::vector<std::thread> threads;
-		threads.emplace_back(Training, std::ref(inner), std::ref(outer), std::cref(features_training), std::cref(targets_training),
-			nInner, nOuter, 0, nTrainingRecords / 2, alpha);
-		threads.emplace_back(Training, std::ref(innerCopy), std::ref(outerCopy), std::cref(features_training), 
-			std::cref(targets_training), nInner, nOuter, nTrainingRecords / 2, nTrainingRecords, alpha);
-		for (auto& t : threads) {
-			t.join();
-		}
+    // Create a base set of outer functions (one per inner)
+    std::vector<std::unique_ptr<Function>> baseOuter;
+    baseOuter.reserve(nInner);
+    for (int i = 0; i < nInner; ++i) {
+        auto function = std::make_unique<Function>();
+        InitializeFunction(*function, nOuterPoints, targetMin, targetMax, targetMin, targetMax, rng);
+        baseOuter.push_back(std::move(function));
+    }
 
-		//averaging models
-		AverageVectors(inner, innerCopy);  //average result is sitting in first name, the last is unchanged
-		AverageVectors(outer, outerCopy);
+    // Create nBatches copies of the base models (inners and outers)
+    std::vector<std::vector<std::unique_ptr<Function>>> inners;
+    std::vector<std::vector<std::unique_ptr<Function>>> outers;
+    inners.reserve(nBatches);
+    outers.reserve(nBatches);
+    for (int b = 0; b < nBatches; ++b) {
+        inners.push_back(CopyVector(baseInner));
+        outers.push_back(CopyVector(baseOuter));
+    }
 
-		innerCopy = CopyVector(inner);
-		outerCopy = CopyVector(outer);
+    printf("Targets are determinants of random 4 * 4 matrices, %d training records\n", nTrainingRecords);
+    int start = 0;
+    std::vector<std::thread> threads;
+    for (int loop = 0; loop < nLoops; ++loop) {
 
-		//validation
-		double pearson = Validation(inner, outer, features_validation, targets_validation, nInner, nOuter);
+        // concurrent training of model copies
+        threads.clear();
+        for (int b = 0; b < nBatches; ++b) {
+            int threadStart = start;
+            int threadEnd = start + nBatchSize;
+            // Launch thread to train inners[b] and outers[b]
+            threads.emplace_back(Training, std::ref(inners[b]), std::ref(outers[b]),
+                std::cref(features_training), std::cref(targets_training),
+                nInner, nOuter, threadStart, threadEnd, nTrainingRecords, alpha);
 
-		current_time = clock();
-		printf("%d pearson %4.3f, Time %2.3f\n", epoch, pearson, (double)(current_time - start_application) / CLOCKS_PER_SEC);
-		if (pearson >= termination) break;
-	}
-	printf("\n");
+            // advance start for next batch (wrap-around)
+            start += nBatchSize;
+            if (start >= nTrainingRecords) start -= nTrainingRecords;
+        }
+
+        for (auto& t : threads) {
+            t.join();
+        }
+
+        // merging concurrently trained models into the first slot (inners[0], outers[0])
+        for (int b = 1; b < nBatches; ++b) {
+            AddVectors(inners[0], inners[b]); // sum into inners[0]
+            AddVectors(outers[0], outers[b]); // sum into outers[0]
+        }
+
+        // average the summed model
+        ScaleVectors(inners[0], 1.0 / static_cast<double>(nBatches));
+        ScaleVectors(outers[0], 1.0 / static_cast<double>(nBatches));
+
+        // redistribute averaged model to all batch copies for next loop
+        for (int b = 1; b < nBatches; ++b) {
+            inners[b] = CopyVector(inners[0]);
+            outers[b] = CopyVector(outers[0]);
+        }
+
+        // validation every few loops
+        if (0 == loop % 3 && loop > 0) {
+            double pearson = Validation(inners[0], outers[0], features_validation, targets_validation, nInner, nOuter);
+            current_time = clock();
+            printf("Loop = %d,  pearson = %4.3f, time = %2.3f\n", loop, pearson, (double)(current_time - start_application) / CLOCKS_PER_SEC);
+            if (pearson >= termination) break;
+        }
+    }
+    printf("\n");
 }
 
 int main() {
