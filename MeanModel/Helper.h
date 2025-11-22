@@ -54,62 +54,110 @@ void ShowVector(const std::vector<double>& ptr) {
 	}
 }
 
-///////////// Determinat dataset
-std::vector<std::vector<double>> GenerateInput(int nRecords, int nFeatures, double min, double max) {
-	std::mt19937 rng(static_cast<unsigned>(time(nullptr)));
-	std::uniform_real_distribution<double> dist(min, max);
-	std::vector<std::vector<double>> x(nRecords);
-	for (int i = 0; i < nRecords; ++i) {
-		x[i] = std::vector<double>(nFeatures);
-		for (int j = 0; j < nFeatures; ++j) {
-			x[i][j] = dist(rng);
-		}
-	}
-	return x;
+//determinants
+static std::vector<std::vector<double>> GenerateInput(int nRecords, int nFeatures, double min, double max) {
+    constexpr int nThreads = 8; // fixed inside function
+    auto x = std::vector<std::vector<double>>(nRecords);
+
+    // allocate rows first
+    for (int i = 0; i < nRecords; ++i) {
+        x[i] = std::vector<double>(nFeatures);
+    }
+
+    // Prepare different seeds (generated on the parent thread)
+    std::random_device rd;
+    std::vector<std::uint64_t> seeds(nThreads);
+    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+    for (int t = 0; t < nThreads; ++t) {
+        // mix rd() with time and thread index to avoid identical seeds
+        seeds[t] = (static_cast<std::uint64_t>(rd()) << 32) ^ rd() ^ (now + (std::uint64_t)t * 0x9e3779b97f4a7c15ULL);
+    }
+
+    // launch anonymous worker threads (capturing seed by value)
+    std::vector<std::thread> threads;
+    threads.reserve(nThreads);
+    for (int t = 0; t < nThreads; ++t) {
+        threads.emplace_back(
+            [t, nThreads, nRecords, nFeatures, min, max, &x, seed = seeds[t]]()
+            {
+                std::mt19937_64 rng(seed);
+                std::uniform_real_distribution<double> dist(min, max);
+                for (int i = t; i < nRecords; i += nThreads) {
+                    for (int j = 0; j < nFeatures; ++j) {
+                        x[i][j] = dist(rng);
+                    }
+                }
+            }
+        );
+    }
+
+    for (auto& th : threads) th.join();
+    return x;
 }
-double determinant(const std::vector<std::vector<double>>& matrix) {
-	size_t n = (int)matrix.size();
-	if (n == 1) {
-		return matrix[0][0];
-	}
-	if (n == 2) {
-		return matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0];
-	}
-	double det = 0.0;
-	for (size_t col = 0; col < n; ++col) {
-		std::vector<std::vector<double>> subMatrix(n - 1, std::vector<double>(n - 1));
-		for (size_t i = 1; i < n; ++i) {
-			int subCol = 0;
-			for (size_t j = 0; j < n; ++j) {
-				if (j == col) continue;
-				subMatrix[i - 1][subCol++] = matrix[i][j];
-			}
-		}
-		det += (col % 2 == 0 ? 1 : -1) * matrix[0][col] * determinant(subMatrix);
-	}
-	return det;
+
+static double determinant(const std::vector<std::vector<double>>& matrix) {
+    size_t n = matrix.size();
+    if (n == 1) {
+        return matrix[0][0];
+    }
+    if (n == 2) {
+        return matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0];
+    }
+    double det = 0.0;
+    for (size_t col = 0; col < n; ++col) {
+        std::vector<std::vector<double>> subMatrix(n - 1, std::vector<double>(n - 1));
+        for (size_t i = 1; i < n; ++i) {
+            int subCol = 0;
+            for (size_t j = 0; j < n; ++j) {
+                if (j == col) continue;
+                subMatrix[i - 1][subCol++] = matrix[i][j];
+            }
+        }
+        det += (col % 2 == 0 ? 1 : -1) * matrix[0][col] * determinant(subMatrix);
+    }
+    return det;
 }
-double ComputeDeterminant(const std::vector<double>& input, int N) {
-	std::vector<std::vector<double>> matrix(N, std::vector<double>(N, 0.0));
-	int cnt = 0;
-	for (int i = 0; i < N; ++i) {
-		for (int j = 0; j < N; ++j) {
-			matrix[i][j] = input[cnt++];
-		}
-	}
-	return determinant(matrix);
+
+static double ComputeDeterminant(const std::vector<double>& input, int N) {
+    std::vector<std::vector<double>> matrix(N, std::vector<double>(N, 0.0));
+    int cnt = 0;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            matrix[i][j] = input[cnt++];
+        }
+    }
+    return determinant(matrix);
 }
-std::vector<double> ComputeDeterminantTarget(const std::vector<std::vector<double>>& x, int nMatrixSize) {
-	size_t nRecords = (int)x.size();
-	std::vector<double> target(nRecords);
-	size_t counter = 0;
-	while (true) {
-		target[counter] = ComputeDeterminant(x[counter], nMatrixSize);
-		if (++counter >= nRecords) break;
-	}
-	return target;
+
+static std::vector<double> ComputeDeterminantTarget(
+    const std::vector<std::vector<double>>& x,
+    int nMatrixSize)
+{
+    size_t nRecords = x.size();
+    constexpr int nThreads = 8;  // fixed inside
+    auto target = std::vector<double>(nRecords);
+
+    // Worker: each thread handles every nThreads-th record
+    auto worker = [&](int tid) {
+        for (int i = tid; i < nRecords; i += nThreads) {
+            target[i] = ComputeDeterminant(x[i], nMatrixSize);
+        }
+        };
+
+    // Launch threads
+    std::vector<std::thread> threads;
+    threads.reserve(nThreads);
+    for (int t = 0; t < nThreads; ++t) {
+        threads.emplace_back(worker, t);
+    }
+
+    for (auto& th : threads) th.join();
+
+    return target;
 }
-//End of determinant
+//end determinants
+
+
 
 
 
