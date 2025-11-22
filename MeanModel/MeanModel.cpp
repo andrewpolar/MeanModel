@@ -109,7 +109,32 @@ void Training(std::vector<std::unique_ptr<Function>>& inner,
 }
 
 void Determinants44() {
-    //configuration
+    //configurations
+    
+    ////Matrices 5 * 5
+    ////1. dataset
+    //const int nTrainingRecords = 10'000'000;
+    //const int nValidationRecords = 2'000'000;
+    //const int nMatrixSize = 5;
+    //const int nFeatures = nMatrixSize * nMatrixSize;
+    //const double min = 0.0;
+    //const double max = 10.0;
+
+    ////2.network
+    //const int nInner = 160;
+    //const int nOuter = 1;
+    //const double alpha = 0.1;
+    //const int nInnerPoints = 3; 
+    //const int nOuterPoints = 30; 
+    //const double termination = 0.91;
+
+    ////3.batches. all constants are arbitrary
+    //const int nBatchSize = 50'000;
+    //const int nBatches = 8;
+    //const int nLoops = 200;
+    /////////////////////////
+
+    //Matrices 4 * 4
     //1.dataset
     const int nTrainingRecords = 100'000;
     const int nValidationRecords = 20'000;
@@ -129,14 +154,16 @@ void Determinants44() {
     //3.batches. all constants are arbitrary
     const int nBatchSize = 45'000;
     const int nBatches = 6;
-    const int nLoops = 64;
+    const int nLoops = 10;
     /////////////////////
 
     //data generation
+    printf("Generating data ...\n");
     auto features_training = GenerateInput(nTrainingRecords, nFeatures, min, max);
     auto features_validation = GenerateInput(nValidationRecords, nFeatures, min, max);
     auto targets_training = ComputeDeterminantTarget(features_training, nMatrixSize);
     auto targets_validation = ComputeDeterminantTarget(features_validation, nMatrixSize);
+    printf("Data is ready ...\n");
 
     //processing start
     using Clock = std::chrono::steady_clock;
@@ -179,7 +206,8 @@ void Determinants44() {
         outers.push_back(CopyVector(outers[0]));
     }
 
-    printf("Targets are determinants of random 4 * 4 matrices, %d training records\n", nTrainingRecords);
+    printf("Targets are determinants of random %d * %d matrices, %d training records\n", 
+        nMatrixSize, nMatrixSize, nTrainingRecords);
     g_pearson = 0.0;
     int start = 0;
     std::vector<std::thread> threads;
@@ -219,20 +247,21 @@ void Determinants44() {
             outers[b] = CopyVector(outers[0]);
         }
 
-        //asynchronous validation every few loops
-        if (0 == loop % 3 && loop > 0) {
-            auto innerCopy = CopyVector(inners[0]);
-            auto outerCopy = CopyVector(outers[0]);
-            std::thread([innerCopy = std::move(innerCopy),
-                outerCopy = std::move(outerCopy),
-                &features_validation, &targets_validation,
-                nInner, nOuter]() mutable
-                {
-                    std::lock_guard<std::mutex> lock(g_validationMutex); // optional
-                    Validation(innerCopy, outerCopy, features_validation, targets_validation, nInner, nOuter);
-                    g_validationRunning = false;
-                }).detach();
-        }
+        //this can work only for short validation data, such as 4 * 4 matrices
+        ////asynchronous validation every few loops
+        //if (0 == loop % 3 && loop > 0) {
+        //    auto innerCopy = CopyVector(inners[0]);
+        //    auto outerCopy = CopyVector(outers[0]);
+        //    std::thread([innerCopy = std::move(innerCopy),
+        //        outerCopy = std::move(outerCopy),
+        //        &features_validation, &targets_validation,
+        //        nInner, nOuter]() mutable
+        //        {
+        //            std::lock_guard<std::mutex> lock(g_validationMutex); // optional
+        //            Validation(innerCopy, outerCopy, features_validation, targets_validation, nInner, nOuter);
+        //            g_validationRunning = false;
+        //        }).detach();
+        //}
 
         auto current = Clock::now();
         double elapsed = std::chrono::duration<double>(current - start_application).count();
@@ -240,6 +269,10 @@ void Determinants44() {
         if (g_pearson >= termination) break;
     }
     printf("\n");
+
+    printf("Validation ...\n");
+    Validation(inners[0], outers[0], features_validation, targets_validation, nInner, nOuter);
+    printf("Pearson %f\n", g_pearson);
 }
 
 int main() {
