@@ -24,10 +24,16 @@
 #include <algorithm>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <mutex>
 #include "Helper.h"
 #include "Function.h"
 
-double Validation(const std::vector<std::unique_ptr<Function>>& inner,
+double g_pearson = 0.0;   
+std::mutex g_validationMutex;
+std::atomic<bool> g_validationRunning(false);
+
+void Validation(const std::vector<std::unique_ptr<Function>>& inner,
 	const std::vector<std::unique_ptr<Function>>& outer, const std::vector<std::vector<double>>& features,
 	const std::vector<double>& targets, int nInner, int nOuter) {
 
@@ -54,13 +60,12 @@ double Validation(const std::vector<std::unique_ptr<Function>>& inner,
 		}
 		predictions[record] = models1[0];
 	}
-	double pearson = Pearson(predictions, targets);
-	return pearson;
+	g_pearson = Pearson(predictions, targets);
 }
 
 void Training(std::vector<std::unique_ptr<Function>>& inner,
 	std::vector<std::unique_ptr<Function>>& outer, const std::vector<std::vector<double>>& features,
-	const std::vector<double>& targets, int nInner, int nOuter, int start, int end, int nRecords, double alpha) {
+	const std::vector<double>& targets, int nInner, int nOuter, int start, int end, int nRecords, double alpha, double accuracy) {
 
 	size_t nFeatures = features[0].size();
 	std::vector<double> models0(nInner);
@@ -86,6 +91,7 @@ void Training(std::vector<std::unique_ptr<Function>>& inner,
 			models1[k] /= nInner;
 		}
 		deltas1[0] = alpha * (targets[record] - models1[0]);
+        if (std::abs(deltas1[0]) < accuracy) continue;
 		for (int j = 0; j < nInner; ++j) {
 			deltas0[j] = deltas1[0] * ComputeDerivative(*outer[j]);
 		}
@@ -117,37 +123,42 @@ void Determinants44() {
     const int nOuter = 1;
     const double alpha = 0.2;
     const int nInnerPoints = 3;
-    const int nOuterPoints = 20;
+    const int nOuterPoints = 25;
     const double termination = 0.97;
 
     //3.batches. all constants are arbitrary
-    const int nBatchSize = 30'000;
+    const int nBatchSize = 45'000;
     const int nBatches = 6;
     const int nLoops = 64;
     /////////////////////
 
+    //data generation
     auto features_training = GenerateInput(nTrainingRecords, nFeatures, min, max);
     auto features_validation = GenerateInput(nValidationRecords, nFeatures, min, max);
     auto targets_training = ComputeDeterminantTarget(features_training, nMatrixSize);
     auto targets_validation = ComputeDeterminantTarget(features_validation, nMatrixSize);
 
+    //processing start
     using Clock = std::chrono::steady_clock;
     auto start_application = Clock::now();
 
     double targetMin = *std::min_element(targets_training.begin(), targets_training.end());
     double targetMax = *std::max_element(targets_training.begin(), targets_training.end());
-
+    double accuracy = std::abs(targetMin);
+    if (accuracy < std::abs(targetMax)) accuracy = std::abs(targetMax);
+    accuracy *= 0.01;
+ 
     std::random_device rd;
     std::mt19937 rng(rd());
 
-    // Create containers sized to nBatches
+    //create containers sized to nBatches
     std::vector<std::vector<std::unique_ptr<Function>>> inners;
     std::vector<std::vector<std::unique_ptr<Function>>> outers;
 
     inners.resize(1);   // make sure index 0 exists
     outers.resize(1);
 
-    // Fill batch 0
+    //generate one set as random
     inners[0].reserve(nInner * nFeatures);
     for (int i = 0; i < nInner * nFeatures; ++i) {
         auto function = std::make_unique<Function>();
@@ -162,17 +173,17 @@ void Determinants44() {
         outers[0].push_back(std::move(function));
     }
 
-    // Copy to remaining batches
+    //copy to remaining sets
     for (int b = 1; b < nBatches; ++b) {
         inners.push_back(CopyVector(inners[0]));
         outers.push_back(CopyVector(outers[0]));
     }
 
     printf("Targets are determinants of random 4 * 4 matrices, %d training records\n", nTrainingRecords);
+    g_pearson = 0.0;
     int start = 0;
     std::vector<std::thread> threads;
     for (int loop = 0; loop < nLoops; ++loop) {
-
         // concurrent training of model copies
         threads.clear();
         for (int b = 0; b < nBatches; ++b) {
@@ -181,7 +192,7 @@ void Determinants44() {
             // Launch thread to train inners[b] and outers[b]
             threads.emplace_back(Training, std::ref(inners[b]), std::ref(outers[b]),
                 std::cref(features_training), std::cref(targets_training),
-                nInner, nOuter, threadStart, threadEnd, nTrainingRecords, alpha);
+                nInner, nOuter, threadStart, threadEnd, nTrainingRecords, alpha, accuracy);
 
             // advance start for next batch (wrap-around)
             start += nBatchSize;
@@ -208,14 +219,25 @@ void Determinants44() {
             outers[b] = CopyVector(outers[0]);
         }
 
-        // validation every few loops
+        //asynchronous validation every few loops
         if (0 == loop % 3 && loop > 0) {
-            double pearson = Validation(inners[0], outers[0], features_validation, targets_validation, nInner, nOuter);
-            auto current = Clock::now();
-            double elapsed = std::chrono::duration<double>(current - start_application).count();
-            printf("Loop = %d,  pearson = %4.3f, time = %2.3f\n", loop, pearson, elapsed);
-            if (pearson >= termination) break;
+            auto innerCopy = CopyVector(inners[0]);
+            auto outerCopy = CopyVector(outers[0]);
+            std::thread([innerCopy = std::move(innerCopy),
+                outerCopy = std::move(outerCopy),
+                &features_validation, &targets_validation,
+                nInner, nOuter]() mutable
+                {
+                    std::lock_guard<std::mutex> lock(g_validationMutex); // optional
+                    Validation(innerCopy, outerCopy, features_validation, targets_validation, nInner, nOuter);
+                    g_validationRunning = false;
+                }).detach();
         }
+
+        auto current = Clock::now();
+        double elapsed = std::chrono::duration<double>(current - start_application).count();
+        printf("Loop = %d,  pearson = %4.3f, time = %2.3f\n", loop, g_pearson, elapsed);
+        if (g_pearson >= termination) break;
     }
     printf("\n");
 }
@@ -223,6 +245,7 @@ void Determinants44() {
 int main() {
 	Determinants44();
 }
+
 
 
 
