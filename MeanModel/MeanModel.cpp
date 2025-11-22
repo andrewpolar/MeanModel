@@ -108,7 +108,7 @@ void Training(std::vector<std::unique_ptr<Function>>& inner,
 	}
 }
 
-void Determinants44() {
+void Determinants() {
     //configurations
     
     ////Matrices 5 * 5
@@ -276,8 +276,9 @@ void Determinants44() {
 }
 
 int main() {
-	Determinants44();
+	Determinants();
 }
+
 
 
 
