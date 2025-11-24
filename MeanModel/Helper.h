@@ -156,3 +156,37 @@ static std::vector<double> ComputeDeterminantTarget(
     return target;
 }
 //end determinants
+
+///////// Areas of faces of tetrahedron
+double Area(double x1, double y1, double z1, double x2, double y2, double z2, double x3, double y3, double z3) {
+    double a1 = (y2 - y1) * (z3 - z1) - (z2 - z1) * (y3 - y1);
+    double a2 = (x2 - x1) * (z3 - z1) - (z2 - z1) * (x3 - x1);
+    double a3 = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1);
+    double A = 0.5 * sqrt(a1 * a1 + a2 * a2 + a3 * a3);
+    return A;
+}
+std::vector<std::vector<double>> MakeRandomMatrix(int rows, int cols, double min, double max) {
+    std::mt19937 rng(static_cast<unsigned>(time(nullptr)));
+    std::uniform_real_distribution<double> dist(min, max);
+    std::vector<std::vector<double>> matrix(rows);
+    for (int i = 0; i < rows; ++i) {
+        matrix[i] = std::vector<double>(cols);
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = dist(rng);
+        }
+    }
+    return matrix;
+}
+std::vector<std::vector<double>> ComputeTargetMatrix(const std::vector<std::vector<double>>& X) {
+    size_t rows = X.size();
+    std::vector<std::vector<double>> matrix(rows);
+    for (size_t i = 0; i < rows; ++i) {
+        matrix[i] = std::vector<double>(4);
+        matrix[i][0] = Area(X[i][0], X[i][1], X[i][2], X[i][3], X[i][4], X[i][5], X[i][6], X[i][7], X[i][8]);
+        matrix[i][1] = Area(X[i][0], X[i][1], X[i][2], X[i][3], X[i][4], X[i][5], X[i][9], X[i][10], X[i][11]);
+        matrix[i][2] = Area(X[i][0], X[i][1], X[i][2], X[i][6], X[i][7], X[i][8], X[i][9], X[i][10], X[i][11]);
+        matrix[i][3] = Area(X[i][3], X[i][4], X[i][5], X[i][6], X[i][7], X[i][8], X[i][9], X[i][10], X[i][11]);
+    }
+    return matrix;
+}
+//////////// End tetrahedron
