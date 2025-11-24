@@ -139,7 +139,7 @@ static std::vector<double> ComputeDeterminantTarget(
 
     // Worker: each thread handles every nThreads-th record
     auto worker = [&](int tid) {
-        for (int i = tid; i < nRecords; i += nThreads) {
+        for (size_t i = tid; i < nRecords; i += nThreads) {
             target[i] = ComputeDeterminant(x[i], nMatrixSize);
         }
         };
@@ -156,8 +156,3 @@ static std::vector<double> ComputeDeterminantTarget(
     return target;
 }
 //end determinants
-
-
-
-
-
