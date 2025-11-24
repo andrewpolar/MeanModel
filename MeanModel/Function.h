@@ -82,15 +82,30 @@ FORCE_INLINE void Update(double delta, Function& F) {
 	F.f[F.index] += delta - tmp;
 }
 
+void CopyFunction(const std::unique_ptr<Function>& src, std::unique_ptr<Function>& dest) {
+	for (size_t i = 0; i < src->f.size(); ++i) {
+		dest->f[i] = src->f[i];
+	}
+	dest->xmin = src->xmin;
+	dest->xmax = src->xmax;
+	dest->deltax = src->deltax;
+}
+
+void CopyVector(const std::vector<std::unique_ptr<Function>>& src, std::vector<std::unique_ptr<Function>>& dest) {
+	for (size_t i = 0; i < src.size(); ++i) {
+		CopyFunction(src[i], dest[i]);
+	}
+}
+
 std::unique_ptr<Function> CopyFunction(const std::unique_ptr<Function>& src) {
 	return std::make_unique<Function>(*src);
 }
 
 std::vector<std::unique_ptr<Function>> CopyVector(const std::vector<std::unique_ptr<Function>>& src) {
 	std::vector<std::unique_ptr<Function>> dst;
-	dst.reserve(src.size());  
+	dst.reserve(src.size());
 	for (const auto& ptr : src) {
-		dst.push_back(CopyFunction(ptr));  
+		dst.push_back(CopyFunction(ptr));
 	}
 	return dst;
 }
