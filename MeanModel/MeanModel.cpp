@@ -243,11 +243,11 @@ void Determinants() {
 
         // redistribute averaged model to all batch copies for next loop
         for (int b = 1; b < nBatches; ++b) {
-            inners[b] = CopyVector(inners[0]);
-            outers[b] = CopyVector(outers[0]);
+            CopyVector(inners[0], inners[b]);
+            CopyVector(outers[0], outers[b]);
         }
 
-        //this can work only for short validation data, such as 4 * 4 matrices
+        ////this can work only for short validation data, such as 4 * 4 matrices
         ////asynchronous validation every few loops
         //if (0 == loop % 3 && loop > 0) {
         //    auto innerCopy = CopyVector(inners[0]);
@@ -278,10 +278,3 @@ void Determinants() {
 int main() {
 	Determinants();
 }
-
-
-
-
-
-
-
